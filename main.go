@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -296,6 +297,35 @@ func delay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func echo(w http.ResponseWriter, r *http.Request) {
+	defer func(t time.Time) {
+		reqTimes[r.URL.Path]++
+		reqSeconds[r.URL.Path] += timeCost(t)
+	}(time.Now())
+
+	reg := regexp.MustCompile(`/echo/?(\d*)/?(\S*)`) // 中文括号，例如：华南地区（广州） -> 广州
+	matches := reg.FindStringSubmatch(r.URL.Path)
+	scode := matches[1]
+	content := matches[2]
+
+	code, err := strconv.Atoi(scode)
+	if err != nil {
+		code = 200
+	}
+
+	w.WriteHeader(code)
+	fmt.Fprintf(w, "response %s method with code %d:\n", r.Method, code)
+	fmt.Fprintf(w, "\n%s\n", content)
+
+	// fmt.Fprintf(w, "[Headers]:\n")
+
+	// for name, headers := range r.Header {
+	// 	for _, h := range headers {
+	// 		fmt.Fprintf(w, "%v: %v\n", name, h)
+	// 	}
+	// }
+}
+
 func ip(w http.ResponseWriter, r *http.Request) {
 	defer func(t time.Time) {
 		reqTimes[r.URL.Path]++
@@ -449,6 +479,9 @@ func main() {
 
 	http.HandleFunc("/delay", delay)
 	http.HandleFunc("/delay/", delay)
+
+	http.HandleFunc("/echo", echo)
+	http.HandleFunc("/echo/", echo)
 
 	http.HandleFunc("/ip", ip)
 	http.HandleFunc("/ip/", ip)
