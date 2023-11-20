@@ -423,6 +423,15 @@ func dt(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, time.Now().Local().Format("2006-01-02 15:04:05"))
 }
 
+func healthz(w http.ResponseWriter, r *http.Request) {
+	defer func(t time.Time) {
+		reqTimes[r.URL.Path]++
+		reqSeconds[r.URL.Path] += timeCost(t)
+	}(time.Now())
+
+	fmt.Fprintf(w, "healthy")
+}
+
 func metrics(w http.ResponseWriter, r *http.Request) {
 	metrics := `# HELP gofs_random random number.
 # TYPE gofs_random gauge
@@ -500,6 +509,9 @@ func main() {
 
 	http.HandleFunc("/dt", dt)
 	http.HandleFunc("/dt/", dt)
+
+	http.HandleFunc("/healthz", healthz)
+	http.HandleFunc("/healthz/", healthz)
 
 	http.HandleFunc("/metrics", metrics)
 	http.HandleFunc("/metrics/", metrics)
