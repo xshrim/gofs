@@ -303,10 +303,22 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		reqSeconds[r.URL.Path] += timeCost(t)
 	}(time.Now())
 
-	reg := regexp.MustCompile(`/echo/?(\d*)/?(\S*)`) // 中文括号，例如：华南地区（广州） -> 广州
+	reg := regexp.MustCompile(`/echo/?(\d*)/?([^/]*)/?(\S*)`) // 中文括号，例如：华南地区（广州） -> 广州
 	matches := reg.FindStringSubmatch(r.URL.Path)
 	scode := matches[1]
-	content := matches[2]
+	headers := matches[2]
+	content := matches[3]
+
+	for _, header := range strings.Split(headers, ",") {
+		header = strings.TrimSpace(header)
+		if header == "" {
+			continue
+		}
+		kv := strings.Split(header, "=")
+		name := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		w.Header().Add(name, value)
+	}
 
 	code, err := strconv.Atoi(scode)
 	if err != nil {
@@ -314,16 +326,24 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(code)
-	fmt.Fprintf(w, "response %s method with code %d:\n", r.Method, code)
+
+	fmt.Fprintf(w, ">>> %s %s %s\n", r.Method, r.URL, r.Proto)
+	fmt.Fprintf(w, ">>> Host: %s\n", r.Host)
+	for name, headers := range r.Header {
+		for _, h := range headers {
+			fmt.Fprintf(w, ">>> %v: %v\n", name, h)
+		}
+	}
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "<<< %s %d %s\n", r.Proto, code, http.StatusText(code))
+	for name, headers := range w.Header() {
+		for _, h := range headers {
+			fmt.Fprintf(w, "<<< %v: %v\n", name, h)
+		}
+	}
+
 	fmt.Fprintf(w, "\n%s\n", content)
-
-	// fmt.Fprintf(w, "[Headers]:\n")
-
-	// for name, headers := range r.Header {
-	// 	for _, h := range headers {
-	// 		fmt.Fprintf(w, "%v: %v\n", name, h)
-	// 	}
-	// }
 }
 
 func ip(w http.ResponseWriter, r *http.Request) {
