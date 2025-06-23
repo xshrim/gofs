@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"flag"
 	"fmt"
@@ -87,6 +88,64 @@ type Server struct {
 	Protocol string
 	Host     string
 	Port     string
+}
+
+// loggingMiddleware 是我们的日志中间件
+func loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
+		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+		var bodyBytes []byte
+		var bodyString string
+
+		// 只对 POST, PUT, PATCH 方法读取请求体
+		// 因为 GET, DELETE 等方法通常没有请求体
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			var err error
+			// 读取 r.Body 内容
+			bodyBytes, err = io.ReadAll(r.Body)
+			if err != nil {
+				log.Printf("错误：无法读取请求体: %v", err)
+			} else {
+				// 将读出的内容写回 r.Body，以便后续的 handler 可以继续使用
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+		}
+
+		// 调用链中的下一个处理器
+		next.ServeHTTP(lrw, r)
+
+		duration := time.Since(startTime)
+
+		// 如果有请求体，将其转换为字符串
+		if len(bodyBytes) > 0 {
+			bodyString = string(bodyBytes)
+		} else {
+			bodyString = "[无请求体]"
+		}
+
+		log.Printf(
+			"来源: %s | 方法: %s | 路径: %s | 状态码: %d | 耗时: %v | 请求头: %s",
+			r.RemoteAddr,
+			r.Method,
+			r.URL.Path,
+			lrw.statusCode,
+			duration,
+			bodyString,
+		)
+	})
+}
+
+// loggingResponseWriter 包装了 http.ResponseWriter，用于捕获状态码
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
 }
 
 // Gzip Compression
@@ -336,7 +395,13 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "\n")
 
-	fmt.Fprintf(w, "<<< %s %d %s\n", r.Proto, code, http.StatusText(code))
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if len(body) > 0 {
+		fmt.Fprintf(w, "%s\n", string(body))
+	}
+
+	fmt.Fprintf(w, "\n<<< %s %d %s\n", r.Proto, code, http.StatusText(code))
 	for name, headers := range w.Header() {
 		for _, h := range headers {
 			fmt.Fprintf(w, "<<< %v: %v\n", name, h)
@@ -344,6 +409,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, "\n%s\n", content)
+
 }
 
 func ip(w http.ResponseWriter, r *http.Request) {
@@ -536,9 +602,9 @@ func main() {
 	http.HandleFunc("/metrics", metrics)
 	http.HandleFunc("/metrics/", metrics)
 
-	log.Println(fmt.Sprintf("serve path: <%s>", dir))
-	log.Println(fmt.Sprintf("browse url: <0.0.0.0:%s>[%s]", port, host))
-	log.Println(fmt.Sprintf("upload url: <0.0.0.0:%s/upload>[%s]", port, host))
+	log.Printf("serve path: <%s>\n", dir)
+	log.Printf("browse url: <0.0.0.0:%s>[%s]\n", port, host)
+	log.Printf("upload url: <0.0.0.0:%s/upload>[%s]\n", port, host)
 	// log.Println(fmt.Sprintf("starting file server at folder:<%s> address:<0.0.0.0:%s>", dir, port))
 
 	err = http.ListenAndServe(":"+port, nil)
